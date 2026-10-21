@@ -3,9 +3,12 @@
 REST API for a small clinic (5 doctors, 30-minute slots) built with Go and PostgreSQL.
 Patients can view a doctor's free slots for a date, book one, cancel, and reschedule.
 
-- **Live URL:** `TODO`
-- **Repository:** `TODO`
-- **Deploys from:** `main` (see [CI/CD](#6-cicd))
+- **Live URL:** https://clinic-booking-yrt8.onrender.com (health check: `/healthz`)
+- **Deploys from:** `main`, automatically, after the tests pass (see [CI/CD](#6-cicd))
+
+> The live service runs on free tiers. The first request after a period of inactivity can take
+> several seconds while the service wakes up, and the free database is deleted on
+> **21 November 2026** unless it is upgraded.
 
 ---
 
