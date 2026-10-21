@@ -13,6 +13,7 @@ type Service interface {
 	Book(ctx context.Context, doctorID, patientID string, start time.Time) (domain.Appointment, error)
 	Cancel(ctx context.Context, id, reason string) (domain.Appointment, error)
 	Reschedule(ctx context.Context, id, doctorID string, start time.Time) (domain.Appointment, error)
+	UpcomingForPatient(ctx context.Context, patientID string) ([]domain.Appointment, error)
 }
 
 type Handler struct {
@@ -28,4 +29,5 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /appointments", h.createAppointment)
 	mux.HandleFunc("PATCH /appointments/{id}/cancel", h.cancelAppointment)
 	mux.HandleFunc("PATCH /appointments/{id}/reschedule", h.rescheduleAppointment)
+	mux.HandleFunc("GET /patients/{id}/appointments", h.patientAppointments)
 }

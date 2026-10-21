@@ -43,6 +43,11 @@ type fakeService struct {
 		id, doctorID string
 		start        time.Time
 	}
+
+	upcoming    []domain.Appointment
+	upcomingErr error
+	gotPatient  string
+	upcomingHit bool
 }
 
 func (f *fakeService) Availability(_ context.Context, id string, day time.Time) ([]time.Time, error) {
@@ -66,6 +71,12 @@ func (f *fakeService) Reschedule(_ context.Context, id, doctorID string, start t
 	f.rescheduleCalled = true
 	f.gotReschedule.id, f.gotReschedule.doctorID, f.gotReschedule.start = id, doctorID, start
 	return f.rescheduleAppt, f.rescheduleErr
+}
+
+func (f *fakeService) UpcomingForPatient(_ context.Context, patientID string) ([]domain.Appointment, error) {
+	f.upcomingHit = true
+	f.gotPatient = patientID
+	return f.upcoming, f.upcomingErr
 }
 
 func do(t *testing.T, svc Service, target string) *httptest.ResponseRecorder {
