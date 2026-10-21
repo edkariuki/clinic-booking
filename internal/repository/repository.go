@@ -110,8 +110,20 @@ func mapError(err error) error {
 		return domain.ErrNotFound
 	}
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "22P02" {
-		return domain.ErrInvalidInput
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "22P02":
+			return domain.ErrInvalidInput
+		case "23503":
+			return domain.ErrNotFound
+		case "23505":
+			switch pgErr.ConstraintName {
+			case "uniq_active_slot":
+				return domain.ErrSlotTaken
+			case "uniq_patient_slot":
+				return domain.ErrPatientBusy
+			}
+		}
 	}
 	return err
 }
