@@ -1,37 +1,70 @@
-name: CI
+name: CI/CD
 
 on:
   pull_request:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
+
     services:
       postgres:
         image: postgres:16
         env:
           POSTGRES_USER: clinic
           POSTGRES_PASSWORD: clinic
-          POSTGRES_DB: clinic_test
+          POSTGRES_DB: clinic
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U clinic -d clinic_test"
+          --health-cmd "pg_isready -U clinic -d clinic"
           --health-interval 5s
+          --health-timeout 5s
           --health-retries 10
+
     env:
-      DATABASE_URL: postgres://clinic:clinic@localhost:5432/clinic_test?sslmode=disable
+      DATABASE_URL: postgres://clinic:clinic@localhost:5432/clinic?sslmode=disable
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go vet ./...
-      - run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
       - name: Apply migrations
+        run: go test ./internal/database -run TestMigrateIsSafeToRepeat -count=1
+
+      - name: Test
+        run: go test ./... -race -count=1
+
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    concurrency:
+      group: deploy
+      cancel-in-progress: false
+
+    steps:
+      - name: Trigger Render deploy
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
         run: |
-          go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
-          migrate -path migrations -database "$DATABASE_URL" up
-      - run: go test ./... -race -count=1
+          if [ -z "$RENDER_DEPLOY_HOOK_URL" ]; then
+            echo "RENDER_DEPLOY_HOOK_URL secret is not set" >&2
+            exit 1
+          fi
+          curl --fail-with-body -sS -X POST "$RENDER_DEPLOY_HOOK_URL"

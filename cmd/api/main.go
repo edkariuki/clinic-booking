@@ -14,6 +14,7 @@ import (
 	"github.com/edkariuki/clinic-booking/internal/handler"
 	"github.com/edkariuki/clinic-booking/internal/repository"
 	"github.com/edkariuki/clinic-booking/internal/service"
+	"github.com/edkariuki/clinic-booking/migrations"
 )
 
 func main() {
@@ -31,6 +32,11 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	slog.Info("applying migrations")
+	if err := database.Migrate(cfg.DatabaseURL, migrations.FS); err != nil {
+		return err
+	}
 
 	pool, err := database.Connect(ctx, cfg.DatabaseURL)
 	if err != nil {
@@ -53,7 +59,7 @@ func run() error {
 	})
 
 	repo := repository.New(pool)
-	svc := service.New(repo, nil) // nil means the real clock
+	svc := service.New(repo, nil)
 	handler.New(svc).Register(mux)
 
 	srv := &http.Server{
