@@ -39,7 +39,7 @@ func newDoctor(t *testing.T, pool *pgxpool.Pool) string {
 	}
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM appointments WHERE doctor_id = $1`, id)
-		_, _ = pool.Exec(ctx, `DELETE FROM doctors WHERE id = $1`, id) // shifts cascade
+		_, _ = pool.Exec(ctx, `DELETE FROM doctors WHERE id = $1`, id)
 	})
 	return id
 }
