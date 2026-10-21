@@ -16,6 +16,13 @@ type fakeRepo struct {
 
 	gotFrom, gotTo time.Time
 	shiftsCalled   bool
+
+	createErr    error
+	createCalled bool
+	createdFor   struct {
+		doctorID, patientID string
+		start               time.Time
+	}
 }
 
 func (f *fakeRepo) GetDoctor(_ context.Context, id string) (domain.Doctor, error) {
@@ -33,6 +40,18 @@ func (f *fakeRepo) ListShifts(_ context.Context, _ string) ([]domain.Shift, erro
 func (f *fakeRepo) ListConfirmedStarts(_ context.Context, _ string, from, to time.Time) ([]time.Time, error) {
 	f.gotFrom, f.gotTo = from, to
 	return f.taken, nil
+}
+
+func (f *fakeRepo) CreateAppointment(_ context.Context, doctorID, patientID string, start time.Time) (domain.Appointment, error) {
+	f.createCalled = true
+	f.createdFor.doctorID, f.createdFor.patientID, f.createdFor.start = doctorID, patientID, start
+	if f.createErr != nil {
+		return domain.Appointment{}, f.createErr
+	}
+	return domain.Appointment{
+		ID: "appt-1", DoctorID: doctorID, PatientID: patientID,
+		StartTime: start, EndTime: start.Add(domain.SlotDuration), Status: domain.StatusConfirmed,
+	}, nil
 }
 
 func newTestService(repo *fakeRepo) *Service {
