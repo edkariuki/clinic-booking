@@ -12,6 +12,14 @@ import (
 
 const maxPatientIDLength = 64
 
+func normalizePatientID(id string) (string, error) {
+	id = strings.TrimSpace(id)
+	if id == "" || utf8.RuneCountInString(id) > maxPatientIDLength {
+		return "", fmt.Errorf("%w: patient_id must be 1 to %d characters", domain.ErrInvalidInput, maxPatientIDLength)
+	}
+	return id, nil
+}
+
 // Book creates a confirmed appointment for patient with doc at start with service validation
 func (s *Service) Book(ctx context.Context, doctorID, patientID string, start time.Time) (domain.Appointment, error) {
 	patientID = strings.TrimSpace(patientID)

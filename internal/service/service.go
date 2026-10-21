@@ -15,6 +15,7 @@ type Repository interface {
 	CancelAppointment(ctx context.Context, id, reason string, decide func(current domain.Appointment) (late bool, err error)) (domain.Appointment, error)
 	GetAppointment(ctx context.Context, id string) (domain.Appointment, error)
 	RescheduleAppointment(ctx context.Context, id, doctorID string, start time.Time, decide func(current domain.Appointment) error) (domain.Appointment, error)
+	ListUpcomingForPatient(ctx context.Context, patientID string, from time.Time) ([]domain.Appointment, error)
 }
 
 type Service struct {
