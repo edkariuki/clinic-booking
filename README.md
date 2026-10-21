@@ -139,50 +139,142 @@ appointments are stored as UTC instants. The zone is a constant in the service, 
 ---
 
 ## 2. API
-
+ 
 | Method | Path | Description |
 | --- | --- | --- |
+| GET | `/healthz` | Liveness and database check |
 | POST | `/appointments` | Book a slot |
 | GET | `/doctors/{id}/availability?date=YYYY-MM-DD` | Free slots for a doctor on a date |
 | PATCH | `/appointments/{id}/cancel` | Cancel with a reason; flags `late_cancellation` within 1 hour of the start |
 | PATCH | `/appointments/{id}/reschedule` | Move to a new slot, optionally with a different doctor |
-| GET | `/patients/{id}/appointments` | Upcoming appointments, sorted by date (bonus) |
-
-`GET /patients/{id}/appointments` returns an empty list for a patient with no upcoming bookings (including unknown IDs, since patients are not stored).
-
-TODO: request/response examples.
-
+| GET | `/patients/{id}/appointments` | Upcoming appointments, sorted by start time (bonus) |
+ 
+Times are RFC 3339 with an offset (for example `2026-10-28T10:00:00+03:00`) and are returned in
+clinic time. Seeded doctor IDs run from `11111111-1111-4111-8111-111111111111` to
+`55555555-5555-4555-8555-555555555555`.
+ 
+**Book**
+```bash
+curl -X POST https://clinic-booking-yrt8.onrender.com/appointments \
+  -H 'Content-Type: application/json' \
+  -d '{"doctor_id":"11111111-1111-4111-8111-111111111111","patient_id":"patient-1","start_time":"2026-10-28T10:00:00+03:00"}'
+```
+```json
+{
+  "id": "1c10adb4-df0c-4c19-98ba-1705cf60c390",
+  "doctor_id": "11111111-1111-4111-8111-111111111111",
+  "patient_id": "patient-1",
+  "start_time": "2026-10-28T10:00:00+03:00",
+  "end_time": "2026-10-28T10:30:00+03:00",
+  "status": "CONFIRMED",
+  "cancellation_reason": null,
+  "late_cancellation": false
+}
+```
+Booking the same slot again returns `409` with `{"error":"this slot is already booked"}`.
+ 
+**Availability**
+```bash
+curl "https://clinic-booking-yrt8.onrender.com/doctors/11111111-1111-4111-8111-111111111111/availability?date=2026-10-28"
+```
+```json
+{
+  "doctor_id": "11111111-1111-4111-8111-111111111111",
+  "date": "2026-10-28",
+  "slots": [
+    {"start": "2026-10-28T08:00:00+03:00", "end": "2026-10-28T08:30:00+03:00"}
+  ]
+}
+```
+(the real response lists every free slot for the day.)
+ 
+**Cancel**
+```bash
+curl -X PATCH https://clinic-booking-yrt8.onrender.com/appointments/<id>/cancel \
+  -H 'Content-Type: application/json' -d '{"reason":"feeling unwell"}'
+```
+Returns `200` with the appointment: `"status":"CANCELLED"`, the stored reason, and `late_cancellation`.
+Cancelling again returns `409`.
+ 
+**Reschedule** (`doctor_id` is optional; leave it out to keep the current doctor)
+```bash
+curl -X PATCH https://clinic-booking-yrt8.onrender.com/appointments/<id>/reschedule \
+  -H 'Content-Type: application/json' \
+  -d '{"start_time":"2026-10-28T11:00:00+03:00","doctor_id":"22222222-2222-4222-8222-222222222222"}'
+```
+Returns `200` with the moved appointment.
+ 
+**Patient's upcoming appointments**
+```bash
+curl https://clinic-booking-yrt8.onrender.com/patients/patient-1/appointments
+```
+```json
+{"patient_id": "patient-1", "appointments": []}
+```
+The list is sorted by start time and excludes cancelled and past appointments. A patient with none, including an
+ID that has never booked, gets an empty list.
+ 
 ---
 
 ## 3. Run locally
-
+ 
+Requirements: Go (version in `go.mod`), Docker, and `make`.
+ 
 ```bash
-cp .env.example .env
-docker compose up -d db
-make migrate-up
-make seed
-make run
+cp .env.example .env     # PORT, DATABASE_URL, POSTGRES_* for the local database
+docker compose up -d db  # PostgreSQL 16 on localhost:5432
+make run                 # applies migrations on startup, then serves on :8080
+make seed                # in a second terminal: loads the 5 doctors and their shifts
 ```
-TODO: confirm commands and env vars (`DATABASE_URL`, `PORT`).
-
+ 
+Then try it:
+```bash
+curl localhost:8080/healthz
+curl "localhost:8080/doctors/11111111-1111-4111-8111-111111111111/availability?date=2026-10-28"
+```
+ 
+Configuration is read from environment variables: `DATABASE_URL` (required) and `PORT` (default `8080`).
+`make migrate-up` and `make migrate-down` use the golang-migrate CLI if you want to run migrations by hand.
+ 
 ## 4. Tests
-
+ 
 ```bash
-make test
+make test        # go test ./... -race -count=1, with .env loaded
 ```
-Covers: happy path, outside working hours, misaligned slot, past slot, 1-hour buffer, slot taken,
-cancel twice, late cancellation flag, cancel or reschedule an appointment that already started,
-reschedule a cancelled appointment, reschedule into a taken slot, reschedule to a different doctor,
-patient overlap (booking and reschedule), and concurrent double-booking tests against real Postgres.
+Rule and service tests use an injected clock and a fake repository, so they need no database. The repository,
+migration and concurrency tests run against a real PostgreSQL through `DATABASE_URL` and are skipped when it is
+not set, so always run them through `make test` or with `DATABASE_URL` exported.
+ 
+Covers: happy path, outside working hours, misaligned slot, past slot, 1hr buffer, slot taken, cancel twice,
+late cancellation flag and its exact boundary, cancel or reschedule an appointment that already started,
+reschedule a cancelled appointment, reschedule into a taken slot, reschedule to a different doctor, patient
+overlap (booking and reschedule), rollback leaving the original booking intact, upcoming-appointments filtering
+and ordering, HTTP error mapping for every endpoint, migrations that are safe to repeat, and concurrent
+double-booking, cancel and reschedule tests against real Postgres.
 
 ## 5. Deployment
-TODO: provider, URL, how migrations run on deploy, secrets handling.
+ 
+- **Host:** Render. A Web Service built from the repository `Dockerfile` (multi-stage build, static binary,
+  distroless non-root image) plus a Render PostgreSQL 16 database in the same region (Oregon), connected over
+  Render's private network.
+- **Configuration:** `DATABASE_URL` is set in the service's environment (the database's internal URL); `PORT` is
+  provided by Render. Secrets are never committed: `.env` is ignored by git and the Docker build.
+- **Health check:** `/healthz`, which also pings the database. A new version that fails it never receives traffic.
+- **Migrations:** applied by the application on startup.
+- **Seed data:** the doctors and shifts in `seed/seed.sql` were loaded once with `psql` (the file is idempotent).
+- **Auto-deploy is off in Render.** Deploys happen only through the pipeline, after the tests pass.
+- **Limits:** free tier. The service sleeps when idle, and the free database is deleted on 21 November 2026.
 
 ## 6. CI/CD
-TODO:
-- **On pull request:** run `go vet`, tests (with a Postgres service container).
-- **On merge to `main`:** run tests, then deploy.
-
+ 
+GitHub Actions, one workflow (`.github/workflows/ci.yml`):
+ 
+- **On every pull request:** the `test` job starts a PostgreSQL 16 service container, then runs `go vet`,
+  `go build`, applies the migrations with the same code the server runs at startup, and runs `go test -race`.
+- **On merge to `main`** (the deploy branch): the same `test` job runs, and if it passes the `deploy` job calls
+  the Render deploy hook, a secret stored as the `RENDER_DEPLOY_HOOK_URL` repository secret. Render builds the
+  Dockerfile and starts the new version only if it passes its health check. Deploys never run concurrently.
+- Pull requests never deploy and a failing test blocks the deploy.
 ---
 
 ## 7. Reflection: how I used AI
