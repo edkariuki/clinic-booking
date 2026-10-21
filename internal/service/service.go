@@ -11,6 +11,7 @@ type Repository interface {
 	GetDoctor(ctx context.Context, id string) (domain.Doctor, error)
 	ListShifts(ctx context.Context, doctorID string) ([]domain.Shift, error)
 	ListConfirmedStarts(ctx context.Context, doctorID string, from, to time.Time) ([]time.Time, error)
+	CreateAppointment(ctx context.Context, doctorID, patientID string, start time.Time) (domain.Appointment, error)
 }
 
 type Service struct {

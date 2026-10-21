@@ -4,10 +4,13 @@ import (
 	"context"
 	"net/http"
 	"time"
+
+	"github.com/edkariuki/clinic-booking/internal/domain"
 )
 
 type Service interface {
 	Availability(ctx context.Context, doctorID string, day time.Time) ([]time.Time, error)
+	Book(ctx context.Context, doctorID, patientID string, start time.Time) (domain.Appointment, error)
 }
 
 type Handler struct {
@@ -20,4 +23,5 @@ func New(svc Service) *Handler {
 
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /doctors/{id}/availability", h.availability)
+	mux.HandleFunc("POST /appointments", h.createAppointment)
 }

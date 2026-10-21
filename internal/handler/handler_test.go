@@ -22,11 +22,25 @@ type fakeService struct {
 
 	gotDoctor string
 	gotDay    time.Time
+
+	appt       domain.Appointment
+	bookErr    error
+	bookCalled bool
+	gotBook    struct {
+		doctorID, patientID string
+		start               time.Time
+	}
 }
 
 func (f *fakeService) Availability(_ context.Context, id string, day time.Time) ([]time.Time, error) {
 	f.gotDoctor, f.gotDay = id, day
 	return f.slots, f.err
+}
+
+func (f *fakeService) Book(_ context.Context, doctorID, patientID string, start time.Time) (domain.Appointment, error) {
+	f.bookCalled = true
+	f.gotBook.doctorID, f.gotBook.patientID, f.gotBook.start = doctorID, patientID, start
+	return f.appt, f.bookErr
 }
 
 func do(t *testing.T, svc Service, target string) *httptest.ResponseRecorder {
