@@ -44,14 +44,16 @@ type fakeRepo struct {
 }
 
 func (f *fakeRepo) GetDoctor(_ context.Context, id string) (domain.Doctor, error) {
+	f.doctorLookups = append(f.doctorLookups, id)
 	if f.doctorErr != nil {
 		return domain.Doctor{}, f.doctorErr
 	}
 	return domain.Doctor{ID: id, Name: "Dr. Test"}, nil
 }
 
-func (f *fakeRepo) ListShifts(_ context.Context, _ string) ([]domain.Shift, error) {
+func (f *fakeRepo) ListShifts(_ context.Context, doctorID string) ([]domain.Shift, error) {
 	f.shiftsCalled = true
+	f.shiftsFor = doctorID
 	return f.shifts, nil
 }
 
