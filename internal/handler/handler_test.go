@@ -30,6 +30,11 @@ type fakeService struct {
 		doctorID, patientID string
 		start               time.Time
 	}
+
+	cancelAppt   domain.Appointment
+	cancelErr    error
+	cancelCalled bool
+	gotCancel    struct{ id, reason string }
 }
 
 func (f *fakeService) Availability(_ context.Context, id string, day time.Time) ([]time.Time, error) {
@@ -41,6 +46,12 @@ func (f *fakeService) Book(_ context.Context, doctorID, patientID string, start 
 	f.bookCalled = true
 	f.gotBook.doctorID, f.gotBook.patientID, f.gotBook.start = doctorID, patientID, start
 	return f.appt, f.bookErr
+}
+
+func (f *fakeService) Cancel(_ context.Context, id, reason string) (domain.Appointment, error) {
+	f.cancelCalled = true
+	f.gotCancel.id, f.gotCancel.reason = id, reason
+	return f.cancelAppt, f.cancelErr
 }
 
 func do(t *testing.T, svc Service, target string) *httptest.ResponseRecorder {
