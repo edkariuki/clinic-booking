@@ -11,6 +11,9 @@ import (
 
 	"github.com/edkariuki/clinic-booking/internal/config"
 	"github.com/edkariuki/clinic-booking/internal/database"
+	"github.com/edkariuki/clinic-booking/internal/handler"
+	"github.com/edkariuki/clinic-booking/internal/repository"
+	"github.com/edkariuki/clinic-booking/internal/service"
 )
 
 func main() {
@@ -48,6 +51,10 @@ func run() error {
 		}
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
+
+	repo := repository.New(pool)
+	svc := service.New(repo, nil) // nil means the real clock
+	handler.New(svc).Register(mux)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
