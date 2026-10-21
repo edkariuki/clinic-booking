@@ -23,6 +23,12 @@ type fakeRepo struct {
 		doctorID, patientID string
 		start               time.Time
 	}
+
+	cancelAppt   domain.Appointment
+	cancelErr    error
+	cancelCalled bool
+	cancelledID  string
+	cancelReason string
 }
 
 func (f *fakeRepo) GetDoctor(_ context.Context, id string) (domain.Doctor, error) {
@@ -52,6 +58,23 @@ func (f *fakeRepo) CreateAppointment(_ context.Context, doctorID, patientID stri
 		ID: "appt-1", DoctorID: doctorID, PatientID: patientID,
 		StartTime: start, EndTime: start.Add(domain.SlotDuration), Status: domain.StatusConfirmed,
 	}, nil
+}
+
+func (f *fakeRepo) CancelAppointment(_ context.Context, id, reason string, decide func(domain.Appointment) (bool, error)) (domain.Appointment, error) {
+	f.cancelCalled = true
+	f.cancelledID, f.cancelReason = id, reason
+	if f.cancelErr != nil {
+		return domain.Appointment{}, f.cancelErr
+	}
+	late, err := decide(f.cancelAppt)
+	if err != nil {
+		return domain.Appointment{}, err
+	}
+	out := f.cancelAppt
+	out.Status = domain.StatusCancelled
+	out.CancellationReason = &reason
+	out.LateCancellation = late
+	return out, nil
 }
 
 func newTestService(repo *fakeRepo) *Service {

@@ -12,6 +12,7 @@ type Repository interface {
 	ListShifts(ctx context.Context, doctorID string) ([]domain.Shift, error)
 	ListConfirmedStarts(ctx context.Context, doctorID string, from, to time.Time) ([]time.Time, error)
 	CreateAppointment(ctx context.Context, doctorID, patientID string, start time.Time) (domain.Appointment, error)
+	CancelAppointment(ctx context.Context, id, reason string, decide func(current domain.Appointment) (late bool, err error)) (domain.Appointment, error)
 }
 
 type Service struct {
