@@ -41,6 +41,14 @@ type fakeRepo struct {
 	}
 	shiftsFor     string
 	doctorLookups []string
+
+	upcoming     []domain.Appointment
+	upcomingErr  error
+	upcomingCall struct {
+		called    bool
+		patientID string
+		from      time.Time
+	}
 }
 
 func (f *fakeRepo) GetDoctor(_ context.Context, id string) (domain.Doctor, error) {
@@ -116,6 +124,12 @@ func (f *fakeRepo) RescheduleAppointment(_ context.Context, id, doctorID string,
 	out.StartTime = start
 	out.EndTime = start.Add(domain.SlotDuration)
 	return out, nil
+}
+
+func (f *fakeRepo) ListUpcomingForPatient(_ context.Context, patientID string, from time.Time) ([]domain.Appointment, error) {
+	f.upcomingCall.called = true
+	f.upcomingCall.patientID, f.upcomingCall.from = patientID, from
+	return f.upcoming, f.upcomingErr
 }
 
 func newTestService(repo *fakeRepo) *Service {
