@@ -35,6 +35,14 @@ type fakeService struct {
 	cancelErr    error
 	cancelCalled bool
 	gotCancel    struct{ id, reason string }
+
+	rescheduleAppt   domain.Appointment
+	rescheduleErr    error
+	rescheduleCalled bool
+	gotReschedule    struct {
+		id, doctorID string
+		start        time.Time
+	}
 }
 
 func (f *fakeService) Availability(_ context.Context, id string, day time.Time) ([]time.Time, error) {
@@ -52,6 +60,12 @@ func (f *fakeService) Cancel(_ context.Context, id, reason string) (domain.Appoi
 	f.cancelCalled = true
 	f.gotCancel.id, f.gotCancel.reason = id, reason
 	return f.cancelAppt, f.cancelErr
+}
+
+func (f *fakeService) Reschedule(_ context.Context, id, doctorID string, start time.Time) (domain.Appointment, error) {
+	f.rescheduleCalled = true
+	f.gotReschedule.id, f.gotReschedule.doctorID, f.gotReschedule.start = id, doctorID, start
+	return f.rescheduleAppt, f.rescheduleErr
 }
 
 func do(t *testing.T, svc Service, target string) *httptest.ResponseRecorder {

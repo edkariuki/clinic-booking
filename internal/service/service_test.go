@@ -29,17 +29,31 @@ type fakeRepo struct {
 	cancelCalled bool
 	cancelledID  string
 	cancelReason string
+
+	getAppt           domain.Appointment
+	getErr            error
+	rescheduleErr     error
+	rescheduleCalled  bool
+	rescheduleApplied bool
+	rescheduled       struct {
+		id, doctorID string
+		start        time.Time
+	}
+	shiftsFor     string
+	doctorLookups []string
 }
 
 func (f *fakeRepo) GetDoctor(_ context.Context, id string) (domain.Doctor, error) {
+	f.doctorLookups = append(f.doctorLookups, id)
 	if f.doctorErr != nil {
 		return domain.Doctor{}, f.doctorErr
 	}
 	return domain.Doctor{ID: id, Name: "Dr. Test"}, nil
 }
 
-func (f *fakeRepo) ListShifts(_ context.Context, _ string) ([]domain.Shift, error) {
+func (f *fakeRepo) ListShifts(_ context.Context, doctorID string) ([]domain.Shift, error) {
 	f.shiftsCalled = true
+	f.shiftsFor = doctorID
 	return f.shifts, nil
 }
 
@@ -74,6 +88,33 @@ func (f *fakeRepo) CancelAppointment(_ context.Context, id, reason string, decid
 	out.Status = domain.StatusCancelled
 	out.CancellationReason = &reason
 	out.LateCancellation = late
+	return out, nil
+}
+
+func (f *fakeRepo) GetAppointment(_ context.Context, _ string) (domain.Appointment, error) {
+	if f.getErr != nil {
+		return domain.Appointment{}, f.getErr
+	}
+	return f.getAppt, nil
+}
+
+func (f *fakeRepo) RescheduleAppointment(_ context.Context, id, doctorID string, start time.Time, decide func(domain.Appointment) error) (domain.Appointment, error) {
+	f.rescheduleCalled = true
+	f.rescheduled.id, f.rescheduled.doctorID, f.rescheduled.start = id, doctorID, start
+	if f.rescheduleErr != nil {
+		return domain.Appointment{}, f.rescheduleErr
+	}
+	if f.getAppt.Status == domain.StatusCancelled {
+		return domain.Appointment{}, domain.ErrAlreadyCancelled
+	}
+	if err := decide(f.getAppt); err != nil {
+		return domain.Appointment{}, err
+	}
+	f.rescheduleApplied = true
+	out := f.getAppt
+	out.DoctorID = doctorID
+	out.StartTime = start
+	out.EndTime = start.Add(domain.SlotDuration)
 	return out, nil
 }
 
