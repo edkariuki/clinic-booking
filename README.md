@@ -8,7 +8,7 @@ Patients can view a doctor's free slots for a date, book one, cancel, and resche
 
 > The live service runs on free tiers. The first request after a period of inactivity can take
 > several seconds while the service wakes up, and the free database is deleted on
-> **21 November 2026** unless it is upgraded.
+> **21 November 2026** unless I upgrade it.
 
 ---
 
@@ -129,7 +129,7 @@ appointments are stored as UTC instants. The zone is a constant in the service, 
 
 **Reschedule flow** (single transaction)
 
-![Reschedule sequence diagram](./assets/cancellation_sequence_diagram.png)
+![Reschedule sequence diagram](./assets/reschedule_sequence_diagram.png)
 
 ### Trade-offs and growth path
 - No cache like Redis which in this version wouldbe over-engineering (Postgres handles indexed range queries at this scale).
