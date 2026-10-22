@@ -1,7 +1,8 @@
 # Clinic Booking API
 
 REST API for a small clinic (5 doctors, 30-minute slots) built with Go and PostgreSQL.
-Patients can view a doctor's free slots for a date, book one, cancel, and reschedule.
+Patients can view a doctor's free slots for a date, book one, cancel, reschedule, and list
+their upcoming appointments
 
 - **Live URL:** https://clinic-booking-yrt8.onrender.com (health check: `/healthz`)
 - **Deploys from:** `main`, automatically, after the tests pass (see [CI/CD](#6-cicd))
@@ -56,9 +57,11 @@ Constraints worth noting:
 CREATE UNIQUE INDEX uniq_active_slot
 ON appointments (doctor_id, start_time) WHERE status = 'CONFIRMED';
 ```
-The service checks first (for a friendly error), but the index is the source of truth, so two
-concurrent requests cannot both succeed. The loser gets a unique violation, returned as `409`.
-Cancelled rows are excluded from the index, so cancelling frees the slot.
+The service validates everything it can know without writing (working hours, the 30-minute grid,
+the one-hour notice rule), but it does **not** check whether the slot is free first. The index alone
+decides, atomically, inside the `INSERT` or `UPDATE`, so two concurrent requests cannot both succeed.
+The loser gets a unique violation, returned as `409`. A check-then-write would have a race window and
+would only add a round trip. Cancelled rows are excluded from the index, so cancelling frees the slot.
 
 **A patient cannot hold overlapping appointments.** The same pattern, keyed by patient:
 ```sql
@@ -80,20 +83,29 @@ grows, cache the result per `(doctor, date)` and invalidate on booking.
 
 **Cancellation is a status change, not a delete**, so history and reasons are preserved.
 A cancellation made **within 1 hour of the start time is allowed but flagged** with
-`late_cancellation = true`. The slot is still released, but the clinic keeps an accurate record of
-last-minute cancellations instead of a "confirmed" booking that everyone knows will be missed. The
+`late_cancellation = true`. The slot is still released, but the clinic keeps an accurate record
+of last-minute cancellations instead of a "confirmed" booking that everyone knows will be missed. The
 flag is computed by the service from the clinic clock at the moment of cancellation, never taken
-from the request.
+from the request. The cancel itself is one transaction that locks the row (`SELECT ... FOR UPDATE`),
+so two simultaneous cancels cannot both succeed.
 
 **Reschedule is a single transaction:** lock the appointment row, validate the new slot like a
 fresh booking, update in place. The request may include an optional `doctor_id` to move the
 appointment to a different doctor (it defaults to the current doctor), and the new slot is
 validated against that doctor's schedule. If the new slot is taken, or the patient already has an
-appointment at that time, the transaction fails and the original booking is untouched. If you want to reschedule an appointment that starts within 1hr you have the option of cancelling the appointment taht will attract the `late_cancellation` flag and book a new appointment.
+appointment at that time, the update violates an index, the transaction rolls back, and the original
+booking is untouched. The old slot is never released before the new one is secured.
 
 **Time zone is fixed to `Africa/Nairobi` (UTC+03:00).** Shifts are clinic-local wall-clock times;
 appointments are stored as UTC instants. The zone is a constant in the service, not a setting, and
-"a date" always means that date in Nairobi. Growth path: move the zone to a per-clinic column if more clinics are added.
+"a date" always means that date in Nairobi. If this grow to other timezones, they can be set per clinc.
+
+**Migrations are embedded and run on startup.** The SQL files in `migrations/` are compiled into the
+binary and applied (with golang-migrate) before the server starts listening. A deploy is a single
+step and the code and schema cannot drift apart. golang-migrate holds a database lock while it runs, so
+several instances starting together are safe. If a migration fails, the app refuses to start and the
+platform keeps the previous version serving. Trade-off: the app's database user needs permission to
+change the schema. A larger team would run migrations as a separate pipeline step with a separate role.
 
 ### Assumptions
 - Slots are 30 minutes and aligned to the shift start. Misaligned start times are rejected.
@@ -106,6 +118,10 @@ appointments are stored as UTC instants. The zone is a constant in the service, 
   could be used to avoid the late-cancellation flag.
 - Reschedule may change the time and also have the option to change the doctor.
 - A patient cannot hold two confirmed appointments at the same time, even with different doctors (409).
+- IDs are validated for format only: `doctor_id` and appointment IDs must be UUIDs, and `patient_id` is
+  trimmed and must be 1 to 64 characters. Patients are identified by this caller-supplied ID; there is
+  no patient registration in v1.
+- "Upcoming" appointments means confirmed appointments that have not started yet.
 - Patients are identified by a caller-supplied ID; there is no patient registration.
 - No authentication, so any caller can act on any `patient_id`.
 
@@ -116,6 +132,9 @@ appointments are stored as UTC instants. The zone is a constant in the service, 
 | 404 | doctor (including a reschedule target doctor) or appointment not found |
 | 409 | slot already taken; patient already has an appointment at that time; appointment already cancelled |
 | 422 | outside working hours, misaligned slot, in the past or inside the 1-hour buffer; rescheduling within 1 hour of the start; cancelling or rescheduling an appointment that has already started |
+
+Errors are always JSON: `{"error": "message"}`. Unexpected failures return a generic `500` and are
+logged on the server, so internals never leak to clients.
 
 ### Diagrams
 
@@ -133,7 +152,12 @@ appointments are stored as UTC instants. The zone is a constant in the service, 
 
 ### Trade-offs and growth path
 - No cache like Redis which in this version wouldbe over-engineering (Postgres handles indexed range queries at this scale).
-- Rate limiting: Not implemented in this version.
+- Rate limiting: Not implemented in this version. Upgrading to cloudflare would provide rate limiting capabilities.
+- The deploy hook returns as soon as Render accepts the request, so a failed build or health check appears in
+  Render, not in the GitHub run. Render keeps the previous version serving when a new one fails its health check.
+- Free hosting tiers: cold starts after inactivity, and the database expires on 21 November 2026.
+- Growth path: auth and roles, a `patients` table with a foreign key once identity exists, doctor leave/holiday exceptions,
+  notifications, multi-clinic support, availability caching, read replicas, migrations as a separate pipeline step.
 
 
 ---
@@ -278,4 +302,16 @@ GitHub Actions, one workflow (`.github/workflows/ci.yml`):
 ---
 
 ## 7. Reflection: how I used AI
-TODO.
+**What I used it for.** I used AI to refine some of my code, test cases (curl requests), generate tables on this readme, generate files like .dockerignore. I used AI to better my sequence diagrams. 
+ 
+**Where AI suggestion improved my work.** 
+- Modelling doc working hrs in shifts. I had the idea of lunch breaks as is common in working hours. AI suggested shifts that would categorize working hours into shifts so that in my `seed.sql` for example Dr Sifuna Edwin has a lunch break and therefore 2 shifts one from 8am to 12noon and the other from 1pm to 5pm. This made hrs pure data. Doctors work different days and different hours and can update their shifts with no code
+- The prompt was how can I achieve working hours with breaks but still allow doc having flexible schedules they can set
+
+**Where the AI output was wrong or needed fixing.**
+- A good instance of this waswhen Docker build failed because the image used Go 1.24 while `go.mod` had updated golang version 1.26.3; I investigated, caught the issue and fixed the issue.
+
+**Decisions I made without AI and why I trusted my judgement.** 
+- Ideation, system design and project setup. I had to write down somewhere what I thought of the project and how to implement it. It was just a rough note but it helped me analyze how best to approach the task and what steps to take eg not using a patients table and having a late_cancellation flag thtat could in a later version be used to attract penalties. ALso the ability to reschedule but with a different doc.
+- For the project setup I wanted very distinct files and not bundled up logic or creating god files and components. Some AI solutions create projects with minimal files but those files are god components so it was important for me to define my structure.
+- I trusted my judgement because I have failed before, I have also acheived success previously and in both situations I have learned. I believe in my ability to make the right calls backed up by experience and education.
